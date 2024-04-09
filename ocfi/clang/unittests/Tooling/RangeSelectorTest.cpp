@@ -28,7 +28,6 @@ using ::llvm::HasValue;
 using ::llvm::StringError;
 using ::testing::AllOf;
 using ::testing::HasSubstr;
-using ::testing::Property;
 
 using MatchResult = MatchFinder::MatchResult;
 
@@ -455,6 +454,51 @@ TEST(RangeSelectorTest, NameOpCtorInitializer) {
   const char *Init = "init";
   TestMatch Match = matchCode(Code, cxxCtorInitializer().bind(Init));
   EXPECT_THAT_EXPECTED(select(name(Init), Match), HasValue("field"));
+}
+
+TEST(RangeSelectorTest, NameOpTypeLoc) {
+  StringRef Code = R"cc(
+    namespace ns {
+    struct Foo {
+      Foo();
+      Foo(int);
+      Foo(int, int);
+    };
+    }  // namespace ns
+
+    ns::Foo a;
+    auto b = ns::Foo(3);
+    auto c = ns::Foo(1, 2);
+  )cc";
+  const char *CtorTy = "ctor_ty";
+  // Matches declaration of `a`
+  TestMatch MatchA = matchCode(
+      Code, varDecl(hasName("a"), hasTypeLoc(typeLoc().bind(CtorTy))));
+  EXPECT_THAT_EXPECTED(select(name(CtorTy), MatchA), HasValue("Foo"));
+  // Matches call of Foo(int)
+  TestMatch MatchB = matchCode(
+      Code, cxxFunctionalCastExpr(hasTypeLoc(typeLoc().bind(CtorTy))));
+  EXPECT_THAT_EXPECTED(select(name(CtorTy), MatchB), HasValue("Foo"));
+  // Matches call of Foo(int, int)
+  TestMatch MatchC = matchCode(
+      Code, cxxTemporaryObjectExpr(hasTypeLoc(typeLoc().bind(CtorTy))));
+  EXPECT_THAT_EXPECTED(select(name(CtorTy), MatchC), HasValue("Foo"));
+}
+
+TEST(RangeSelectorTest, NameOpTemplateSpecializationTypeLoc) {
+  StringRef Code = R"cc(
+    namespace ns {
+    template <typename T>
+    struct Foo {};
+    }  // namespace ns
+
+    ns::Foo<int> a;
+  )cc";
+  const char *Loc = "tyloc";
+  // Matches declaration of `a`.
+  TestMatch MatchA =
+      matchCode(Code, varDecl(hasName("a"), hasTypeLoc(typeLoc().bind(Loc))));
+  EXPECT_THAT_EXPECTED(select(name(Loc), MatchA), HasValue("Foo"));
 }
 
 TEST(RangeSelectorTest, NameOpErrors) {

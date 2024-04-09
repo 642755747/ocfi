@@ -23,7 +23,6 @@ namespace llvm {
 class BasicBlock;
 class Value;
 class ConstantInt;
-class AllocaInst;
 }
 
 namespace clang {
@@ -41,6 +40,10 @@ struct CatchTypeInfo {
 
 /// A protected scope for zero-cost EH handling.
 class EHScope {
+public:
+  enum Kind { Cleanup, Catch, Terminate, Filter };
+
+private:
   llvm::BasicBlock *CachedLandingPad;
   llvm::BasicBlock *CachedEHDispatchBlock;
 
@@ -48,6 +51,7 @@ class EHScope {
 
   class CommonBitFields {
     friend class EHScope;
+    LLVM_PREFERRED_TYPE(Kind)
     unsigned Kind : 3;
   };
   enum { NumCommonBits = 3 };
@@ -65,21 +69,27 @@ protected:
     unsigned : NumCommonBits;
 
     /// Whether this cleanup needs to be run along normal edges.
+    LLVM_PREFERRED_TYPE(bool)
     unsigned IsNormalCleanup : 1;
 
     /// Whether this cleanup needs to be run along exception edges.
+    LLVM_PREFERRED_TYPE(bool)
     unsigned IsEHCleanup : 1;
 
     /// Whether this cleanup is currently active.
+    LLVM_PREFERRED_TYPE(bool)
     unsigned IsActive : 1;
 
     /// Whether this cleanup is a lifetime marker
+    LLVM_PREFERRED_TYPE(bool)
     unsigned IsLifetimeMarker : 1;
 
     /// Whether the normal cleanup should test the activation flag.
+    LLVM_PREFERRED_TYPE(bool)
     unsigned TestFlagInNormalCleanup : 1;
 
     /// Whether the EH cleanup should test the activation flag.
+    LLVM_PREFERRED_TYPE(bool)
     unsigned TestFlagInEHCleanup : 1;
 
     /// The amount of extra storage needed by the Cleanup.
@@ -102,8 +112,6 @@ protected:
   };
 
 public:
-  enum Kind { Cleanup, Catch, Terminate, Filter };
-
   EHScope(Kind kind, EHScopeStack::stable_iterator enclosingEHScope)
     : CachedLandingPad(nullptr), CachedEHDispatchBlock(nullptr),
       EnclosingEHScope(enclosingEHScope) {
@@ -242,7 +250,7 @@ class alignas(8) EHCleanupScope : public EHScope {
 
   /// An optional i1 variable indicating whether this cleanup has been
   /// activated yet.
-  llvm::AllocaInst *ActiveFlag;
+  Address ActiveFlag;
 
   /// Extra information required for cleanups that have resolved
   /// branches through them.  This has to be allocated on the side
@@ -290,7 +298,8 @@ public:
                  EHScopeStack::stable_iterator enclosingEH)
       : EHScope(EHScope::Cleanup, enclosingEH),
         EnclosingNormal(enclosingNormal), NormalBlock(nullptr),
-        ActiveFlag(nullptr), ExtInfo(nullptr), FixupDepth(fixupDepth) {
+        ActiveFlag(Address::invalid()), ExtInfo(nullptr),
+        FixupDepth(fixupDepth) {
     CleanupBits.IsNormalCleanup = isNormal;
     CleanupBits.IsEHCleanup = isEH;
     CleanupBits.IsActive = true;
@@ -320,13 +329,13 @@ public:
   bool isLifetimeMarker() const { return CleanupBits.IsLifetimeMarker; }
   void setLifetimeMarker() { CleanupBits.IsLifetimeMarker = true; }
 
-  bool hasActiveFlag() const { return ActiveFlag != nullptr; }
+  bool hasActiveFlag() const { return ActiveFlag.isValid(); }
   Address getActiveFlag() const {
-    return Address(ActiveFlag, CharUnits::One());
+    return ActiveFlag;
   }
-  void setActiveFlag(Address Var) {
+  void setActiveFlag(RawAddress Var) {
     assert(Var.getAlignment().isOne());
-    ActiveFlag = cast<llvm::AllocaInst>(Var.getPointer());
+    ActiveFlag = Var;
   }
 
   void setTestFlagInNormalCleanup() {
@@ -613,6 +622,7 @@ struct EHPersonality {
   static const EHPersonality MSVC_CxxFrameHandler3;
   static const EHPersonality GNU_Wasm_CPlusPlus;
   static const EHPersonality XL_CPlusPlus;
+  static const EHPersonality ZOS_CPlusPlus;
 
   /// Does this personality use landingpads or the family of pad instructions
   /// designed to form funclets?

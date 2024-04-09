@@ -1,8 +1,8 @@
-// RUN: %libomptarget-compilexx-run-and-check-aarch64-unknown-linux-gnu
-// RUN: %libomptarget-compilexx-run-and-check-powerpc64-ibm-linux-gnu
-// RUN: %libomptarget-compilexx-run-and-check-powerpc64le-ibm-linux-gnu
-// RUN: %libomptarget-compilexx-run-and-check-x86_64-pc-linux-gnu
-// RUN: %libomptarget-compilexx-run-and-check-nvptx64-nvidia-cuda
+// Unonptimized, we need 24000000 bytes heap
+// RUN: %libomptarget-compilexx-generic
+// RUN: env LIBOMPTARGET_HEAP_SIZE=24000000 \
+// RUN: %libomptarget-run-generic 2>&1 | %fcheck-generic
+// RUN: %libomptarget-compileoptxx-run-and-check-generic
 
 #include <iostream>
 
@@ -29,7 +29,7 @@ int main() {
     C[I] = -9;
   }
 
-#pragma omp target data map(tofrom : C [0:N]) map(to : A [0:N], B [0:N])
+#pragma omp target data map(tofrom : C[0 : N]) map(to : A[0 : N], B[0 : N])
   {
     forall(0, N, [&](int I) { C[I] += A[I] + B[I]; });
   }

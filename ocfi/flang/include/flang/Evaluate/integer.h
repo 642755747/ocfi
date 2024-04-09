@@ -27,8 +27,8 @@
 #include <string>
 #include <type_traits>
 
-// Some environments, viz. clang on Darwin, allow the macro HUGE
-// to leak out of <math.h> even when it is never directly included.
+// Some environments, viz. glibc 2.17, allow the macro HUGE
+// to leak out of <math.h>.
 #undef HUGE
 
 namespace Fortran::evaluate::value {
@@ -154,7 +154,10 @@ public:
           }
         }
       } else {
-        INT signExtension{-(n < 0)};
+        // Avoid left shifts of negative signed values (that's an undefined
+        // behavior in C++).
+        auto signExtension{std::make_unsigned_t<INT>(n < 0)};
+        signExtension = ~signExtension + 1;
         static_assert(nBits >= partBits);
         if constexpr (nBits > partBits) {
           signExtension <<= nBits - partBits;
@@ -358,6 +361,7 @@ public:
 
   static constexpr int DIGITS{bits - 1}; // don't count the sign bit
   static constexpr Integer HUGE() { return MASKR(bits - 1); }
+  static constexpr Integer Least() { return MASKL(1); }
   static constexpr int RANGE{// in the sense of SELECTED_INT_KIND
       // This magic value is LOG10(2.)*1E12.
       static_cast<int>(((bits - 1) * 301029995664) / 1000000000000)};
@@ -477,7 +481,12 @@ public:
     SINT n = ToUInt<UINT>();
     constexpr std::size_t maxBits{CHAR_BIT * sizeof n};
     if constexpr (bits < maxBits) {
-      n |= -(n >> (bits - 1)) << bits;
+      // Avoid left shifts of negative signed values (that's an undefined
+      // behavior in C++).
+      auto u{std::make_unsigned_t<SINT>(ToUInt())};
+      u = (u >> (bits - 1)) << (bits - 1); // Get the sign bit only.
+      u = ~u + 1; // Negate top bits if not 0.
+      n |= static_cast<SINT>(u);
     }
     return n;
   }
@@ -783,12 +792,12 @@ public:
     return {diff.value, overflow};
   }
 
-  // MAX(X-Y, 0)
-  constexpr Integer DIM(const Integer &y) const {
+  // DIM(X,Y)=MAX(X-Y, 0)
+  constexpr ValueWithOverflow DIM(const Integer &y) const {
     if (CompareSigned(y) != Ordering::Greater) {
       return {};
     } else {
-      return SubtractSigned(y).value;
+      return SubtractSigned(y);
     }
   }
 

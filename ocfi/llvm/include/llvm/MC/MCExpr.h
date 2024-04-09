@@ -200,6 +200,7 @@ public:
     VK_GOTREL,
     VK_PCREL,
     VK_GOTPCREL,
+    VK_GOTPCREL_NORELAX,
     VK_GOTTPOFF,
     VK_INDNTPOFF,
     VK_NTPOFF,
@@ -222,6 +223,12 @@ public:
     VK_SECREL,
     VK_SIZE,    // symbol@SIZE
     VK_WEAKREF, // The link between the symbols in .weakref foo, bar
+    VK_FUNCDESC,
+    VK_GOTFUNCDESC,
+    VK_GOTOFFFUNCDESC,
+    VK_TLSGD_FDPIC,
+    VK_TLSLDM_FDPIC,
+    VK_GOTTPOFF_FDPIC,
 
     VK_X86_ABS8,
     VK_X86_PLTOFF,
@@ -242,6 +249,7 @@ public:
     VK_AVR_DIFF8,
     VK_AVR_DIFF16,
     VK_AVR_DIFF32,
+    VK_AVR_PM,
 
     VK_PPC_LO,              // symbol@l
     VK_PPC_HI,              // symbol@h
@@ -295,6 +303,12 @@ public:
     VK_PPC_GOT_TLSGD_HI,    // symbol@got@tlsgd@h
     VK_PPC_GOT_TLSGD_HA,    // symbol@got@tlsgd@ha
     VK_PPC_TLSGD,           // symbol@tlsgd
+    VK_PPC_AIX_TLSGD,       // symbol@gd
+    VK_PPC_AIX_TLSGDM,      // symbol@m
+    VK_PPC_AIX_TLSIE,       // symbol@ie
+    VK_PPC_AIX_TLSLE,       // symbol@le
+    VK_PPC_AIX_TLSLD,       // symbol@ld
+    VK_PPC_AIX_TLSML,       // symbol@ml
     VK_PPC_GOT_TLSLD,       // symbol@got@tlsld
     VK_PPC_GOT_TLSLD_LO,    // symbol@got@tlsld@l
     VK_PPC_GOT_TLSLD_HI,    // symbol@got@tlsld@h
@@ -325,6 +339,8 @@ public:
     VK_WASM_TLSREL,    // Memory address relative to __tls_base
     VK_WASM_MBREL,     // Memory address relative to __memory_base
     VK_WASM_TBREL,     // Table index relative to __table_base
+    VK_WASM_GOT_TLS,   // Wasm global index of TLS symbol.
+    VK_WASM_FUNCINDEX, // Wasm function index.
 
     VK_AMDGPU_GOTPCREL32_LO, // symbol@gotpcrel32@lo
     VK_AMDGPU_GOTPCREL32_HI, // symbol@gotpcrel32@hi

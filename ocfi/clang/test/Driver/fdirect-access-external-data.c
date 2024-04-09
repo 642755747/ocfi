@@ -9,9 +9,11 @@
 // RUN: %clang -### -c -target aarch64 %s -fpic 2>&1 | FileCheck %s --check-prefix=DEFAULT
 // RUN: %clang -### -c -target aarch64 %s -fpic -fdirect-access-external-data 2>&1 | FileCheck %s --check-prefix=DIRECT
 
-/// -m[no-]pie-copy-relocations are aliases for compatibility.
-// RUN: %clang -### -c -target riscv64 %s -mno-pie-copy-relocations 2>&1 | FileCheck %s --check-prefix=INDIRECT
-// RUN: %clang -### -c -target riscv64 %s -fpic -mpie-copy-relocations 2>&1 | FileCheck %s --check-prefix=DIRECT
+/// loongarch* targets default to -fno-direct-access-external-data even for -fno-pic.
+// RUN: %clang -### -c --target=loongarch64 -fno-pic %s 2>&1 | FileCheck %s --check-prefix=INDIRECT
+// RUN: %clang -### -c --target=loongarch64 -fpie %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang -### -c --target=loongarch32 -fno-pic -fdirect-access-external-data %s 2>&1 | FileCheck %s --check-prefix=DEFAULT
+// RUN: %clang -### -c --target=loongarch32 -fpie -fdirect-access-external-data %s 2>&1 | FileCheck %s --check-prefix=DIRECT
 
 // DEFAULT-NOT: direct-access-external-data"
 // DIRECT:      "-fdirect-access-external-data"

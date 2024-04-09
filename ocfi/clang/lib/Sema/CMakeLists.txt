@@ -1,7 +1,10 @@
 set(LLVM_LINK_COMPONENTS
   Core
+  FrontendHLSL
   FrontendOpenMP
+  MC
   Support
+  TargetParser
   )
 
 clang_tablegen(OpenCLBuiltins.inc -gen-clang-opencl-builtins
@@ -14,6 +17,7 @@ add_clang_library(clangSema
   CodeCompleteConsumer.cpp
   DeclSpec.cpp
   DelayedDiagnostic.cpp
+  HLSLExternalSemaSource.cpp
   IdentifierResolver.cpp
   JumpDiagnostics.cpp
   MultiplexExternalSemaSource.cpp
@@ -23,7 +27,9 @@ add_clang_library(clangSema
   Sema.cpp
   SemaAccess.cpp
   SemaAttr.cpp
+  SemaAPINotes.cpp
   SemaAvailability.cpp
+  SemaBase.cpp
   SemaCXXScopeSpec.cpp
   SemaCast.cpp
   SemaChecking.cpp
@@ -42,14 +48,17 @@ add_clang_library(clangSema
   SemaExprMember.cpp
   SemaExprObjC.cpp
   SemaFixItUtils.cpp
+  SemaHLSL.cpp
   SemaInit.cpp
   SemaLambda.cpp
   SemaLookup.cpp
   SemaModule.cpp
   SemaObjCProperty.cpp
+  SemaOpenACC.cpp
   SemaOpenMP.cpp
   SemaOverload.cpp
   SemaPseudoObject.cpp
+  SemaRISCVVectorLookup.cpp
   SemaStmt.cpp
   SemaStmtAsm.cpp
   SemaStmtAttr.cpp
@@ -65,11 +74,14 @@ add_clang_library(clangSema
   DEPENDS
   ClangOpenCLBuiltinsImpl
   omp_gen
+  ClangDriverOptions
 
   LINK_LIBS
+  clangAPINotes
   clangAST
   clangAnalysis
   clangBasic
   clangEdit
   clangLex
+  clangSupport
   )

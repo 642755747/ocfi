@@ -13,7 +13,7 @@
     call void @llvm.dbg.value(metadata i32 %add, metadata !12, metadata !DIExpression()), !dbg !15
     %mul = shl nsw i32 %add, 1, !dbg !16
     call void @llvm.dbg.value(metadata i32 %mul, metadata !14, metadata !DIExpression()), !dbg !16
-    store i32 %mul, i32* @ga, align 4, !dbg !17
+    store i32 %mul, ptr @ga, align 4, !dbg !17
     ret i32 %add, !dbg !18
   }
 
@@ -64,7 +64,7 @@ body:             |
     %3:gr32 = nsw ADD32rr %2, %2, implicit-def dead $eflags, debug-location !18
     DBG_VALUE %3, $noreg, !12, !DIExpression(), debug-location !18
     DBG_VALUE $eflags, $noreg, !12, !DIExpression(), debug-location !18
-    MOV32mr $rip, 1, $noreg, @ga, $noreg, killed %3, debug-location !DILocation(line: 5, column: 1, scope: !9) :: (store 4 into @ga, !tbaa !18)
+    MOV32mr $rip, 1, $noreg, @ga, $noreg, killed %3, debug-location !DILocation(line: 5, column: 1, scope: !9) :: (store (s32) into @ga, !tbaa !18)
     DBG_VALUE 0, $noreg, !12, !DIExpression(), debug-location !DILocation(line: 5, column: 1, scope: !9)
     ; Let it miss Line 6: Change "!DILocation(line: 6, ..." to "!DILocation(line: 5, ..."
     $eax = COPY %2, debug-location !DILocation(line: 5, column: 1, scope: !9)

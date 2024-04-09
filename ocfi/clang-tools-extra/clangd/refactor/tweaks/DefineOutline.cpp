@@ -25,18 +25,14 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TokenKinds.h"
-#include "clang/Driver/Types.h"
-#include "clang/Format/Format.h"
-#include "clang/Lex/Lexer.h"
 #include "clang/Tooling/Core/Replacement.h"
 #include "clang/Tooling/Syntax/Tokens.h"
-#include "llvm/ADT/None.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Error.h"
 #include <cstddef>
+#include <optional>
 #include <string>
 
 namespace clang {
@@ -62,21 +58,20 @@ const FunctionDecl *getSelectedFunction(const SelectionTree::Node *SelNode) {
   return nullptr;
 }
 
-llvm::Optional<Path> getSourceFile(llvm::StringRef FileName,
-                                   const Tweak::Selection &Sel) {
-  if (auto Source = getCorrespondingHeaderOrSource(
-          FileName,
-          &Sel.AST->getSourceManager().getFileManager().getVirtualFileSystem()))
+std::optional<Path> getSourceFile(llvm::StringRef FileName,
+                                  const Tweak::Selection &Sel) {
+  assert(Sel.FS);
+  if (auto Source = getCorrespondingHeaderOrSource(FileName, Sel.FS))
     return *Source;
   return getCorrespondingHeaderOrSource(FileName, *Sel.AST, Sel.Index);
 }
 
 // Synthesize a DeclContext for TargetNS from CurContext. TargetNS must be empty
 // for global namespace, and endwith "::" otherwise.
-// Returns None if TargetNS is not a prefix of CurContext.
-llvm::Optional<const DeclContext *>
+// Returns std::nullopt if TargetNS is not a prefix of CurContext.
+std::optional<const DeclContext *>
 findContextForNS(llvm::StringRef TargetNS, const DeclContext *CurContext) {
-  assert(TargetNS.empty() || TargetNS.endswith("::"));
+  assert(TargetNS.empty() || TargetNS.ends_with("::"));
   // Skip any non-namespace contexts, e.g. TagDecls, functions/methods.
   CurContext = CurContext->getEnclosingNamespaceContext();
   // If TargetNS is empty, it means global ns, which is translation unit.
@@ -96,8 +91,8 @@ findContextForNS(llvm::StringRef TargetNS, const DeclContext *CurContext) {
   llvm::StringRef CurrentContextNS(TargetContextNS);
   // If TargetNS is not a prefix of CurrentContext, there's no way to reach
   // it.
-  if (!CurrentContextNS.startswith(TargetNS))
-    return llvm::None;
+  if (!CurrentContextNS.starts_with(TargetNS))
+    return std::nullopt;
 
   while (CurrentContextNS != TargetNS) {
     CurContext = CurContext->getParent();
@@ -136,6 +131,47 @@ getFunctionSourceAfterReplacements(const FunctionDecl *FD,
   return QualifiedFunc->substr(FuncBegin, FuncEnd - FuncBegin + 1);
 }
 
+// Returns replacements to delete tokens with kind `Kind` in the range
+// `FromRange`. Removes matching instances of given token preceeding the
+// function defition.
+llvm::Expected<tooling::Replacements>
+deleteTokensWithKind(const syntax::TokenBuffer &TokBuf, tok::TokenKind Kind,
+                     SourceRange FromRange) {
+  tooling::Replacements DelKeywordCleanups;
+  llvm::Error Errors = llvm::Error::success();
+  bool FoundAny = false;
+  for (const auto &Tok : TokBuf.expandedTokens(FromRange)) {
+    if (Tok.kind() != Kind)
+      continue;
+    FoundAny = true;
+    auto Spelling = TokBuf.spelledForExpanded(llvm::ArrayRef(Tok));
+    if (!Spelling) {
+      Errors = llvm::joinErrors(
+          std::move(Errors),
+          error("define outline: couldn't remove `{0}` keyword.",
+                tok::getKeywordSpelling(Kind)));
+      break;
+    }
+    auto &SM = TokBuf.sourceManager();
+    CharSourceRange DelRange =
+        syntax::Token::range(SM, Spelling->front(), Spelling->back())
+            .toCharRange(SM);
+    if (auto Err =
+            DelKeywordCleanups.add(tooling::Replacement(SM, DelRange, "")))
+      Errors = llvm::joinErrors(std::move(Errors), std::move(Err));
+  }
+  if (!FoundAny) {
+    Errors = llvm::joinErrors(
+        std::move(Errors),
+        error("define outline: couldn't find `{0}` keyword to remove.",
+              tok::getKeywordSpelling(Kind)));
+  }
+
+  if (Errors)
+    return std::move(Errors);
+  return DelKeywordCleanups;
+}
+
 // Creates a modified version of function definition that can be inserted at a
 // different location, qualifies return value and function name to achieve that.
 // Contains function signature, except defaulted parameter arguments, body and
@@ -144,7 +180,8 @@ getFunctionSourceAfterReplacements(const FunctionDecl *FD,
 // FIXME: Drop attributes in function signature.
 llvm::Expected<std::string>
 getFunctionSourceCode(const FunctionDecl *FD, llvm::StringRef TargetNamespace,
-                      const syntax::TokenBuffer &TokBuf) {
+                      const syntax::TokenBuffer &TokBuf,
+                      const HeuristicResolver *Resolver) {
   auto &AST = FD->getASTContext();
   auto &SM = AST.getSourceManager();
   auto TargetContext = findContextForNS(TargetNamespace, FD->getDeclContext());
@@ -156,55 +193,78 @@ getFunctionSourceCode(const FunctionDecl *FD, llvm::StringRef TargetNamespace,
 
   // Finds the first unqualified name in function return type and name, then
   // qualifies those to be valid in TargetContext.
-  findExplicitReferences(FD, [&](ReferenceLoc Ref) {
-    // It is enough to qualify the first qualifier, so skip references with a
-    // qualifier. Also we can't do much if there are no targets or name is
-    // inside a macro body.
-    if (Ref.Qualifier || Ref.Targets.empty() || Ref.NameLoc.isMacroID())
-      return;
-    // Only qualify return type and function name.
-    if (Ref.NameLoc != FD->getReturnTypeSourceRange().getBegin() &&
-        Ref.NameLoc != FD->getLocation())
-      return;
+  findExplicitReferences(
+      FD,
+      [&](ReferenceLoc Ref) {
+        // It is enough to qualify the first qualifier, so skip references with
+        // a qualifier. Also we can't do much if there are no targets or name is
+        // inside a macro body.
+        if (Ref.Qualifier || Ref.Targets.empty() || Ref.NameLoc.isMacroID())
+          return;
+        // Only qualify return type and function name.
+        if (Ref.NameLoc != FD->getReturnTypeSourceRange().getBegin() &&
+            Ref.NameLoc != FD->getLocation())
+          return;
 
-    for (const NamedDecl *ND : Ref.Targets) {
-      if (ND->getDeclContext() != Ref.Targets.front()->getDeclContext()) {
-        elog("Targets from multiple contexts: {0}, {1}",
-             printQualifiedName(*Ref.Targets.front()), printQualifiedName(*ND));
-        return;
-      }
-    }
-    const NamedDecl *ND = Ref.Targets.front();
-    const std::string Qualifier = getQualification(
-        AST, *TargetContext, SM.getLocForStartOfFile(SM.getMainFileID()), ND);
-    if (auto Err = DeclarationCleanups.add(
-            tooling::Replacement(SM, Ref.NameLoc, 0, Qualifier)))
+        for (const NamedDecl *ND : Ref.Targets) {
+          if (ND->getDeclContext() != Ref.Targets.front()->getDeclContext()) {
+            elog("Targets from multiple contexts: {0}, {1}",
+                 printQualifiedName(*Ref.Targets.front()),
+                 printQualifiedName(*ND));
+            return;
+          }
+        }
+        const NamedDecl *ND = Ref.Targets.front();
+        const std::string Qualifier =
+            getQualification(AST, *TargetContext,
+                             SM.getLocForStartOfFile(SM.getMainFileID()), ND);
+        if (auto Err = DeclarationCleanups.add(
+                tooling::Replacement(SM, Ref.NameLoc, 0, Qualifier)))
+          Errors = llvm::joinErrors(std::move(Errors), std::move(Err));
+      },
+      Resolver);
+
+  // findExplicitReferences doesn't provide references to
+  // constructor/destructors, it only provides references to type names inside
+  // them.
+  // this works for constructors, but doesn't work for destructor as type name
+  // doesn't cover leading `~`, so handle it specially.
+  if (const auto *Destructor = llvm::dyn_cast<CXXDestructorDecl>(FD)) {
+    if (auto Err = DeclarationCleanups.add(tooling::Replacement(
+            SM, Destructor->getLocation(), 0,
+            getQualification(AST, *TargetContext,
+                             SM.getLocForStartOfFile(SM.getMainFileID()),
+                             Destructor))))
       Errors = llvm::joinErrors(std::move(Errors), std::move(Err));
-  });
+  }
 
   // Get rid of default arguments, since they should not be specified in
   // out-of-line definition.
   for (const auto *PVD : FD->parameters()) {
-    if (PVD->hasDefaultArg()) {
-      // Deletion range initially spans the initializer, excluding the `=`.
-      auto DelRange = CharSourceRange::getTokenRange(PVD->getDefaultArgRange());
-      // Get all tokens before the default argument.
-      auto Tokens = TokBuf.expandedTokens(PVD->getSourceRange())
-                        .take_while([&SM, &DelRange](const syntax::Token &Tok) {
-                          return SM.isBeforeInTranslationUnit(
-                              Tok.location(), DelRange.getBegin());
-                        });
-      // Find the last `=` before the default arg.
+    if (!PVD->hasDefaultArg())
+      continue;
+    // Deletion range spans the initializer, usually excluding the `=`.
+    auto DelRange = CharSourceRange::getTokenRange(PVD->getDefaultArgRange());
+    // Get all tokens before the default argument.
+    auto Tokens = TokBuf.expandedTokens(PVD->getSourceRange())
+                      .take_while([&SM, &DelRange](const syntax::Token &Tok) {
+                        return SM.isBeforeInTranslationUnit(
+                            Tok.location(), DelRange.getBegin());
+                      });
+    if (TokBuf.expandedTokens(DelRange.getAsRange()).front().kind() !=
+        tok::equal) {
+      // Find the last `=` if it isn't included in the initializer, and update
+      // the DelRange to include it.
       auto Tok =
           llvm::find_if(llvm::reverse(Tokens), [](const syntax::Token &Tok) {
             return Tok.kind() == tok::equal;
           });
       assert(Tok != Tokens.rend());
       DelRange.setBegin(Tok->location());
-      if (auto Err =
-              DeclarationCleanups.add(tooling::Replacement(SM, DelRange, "")))
-        Errors = llvm::joinErrors(std::move(Errors), std::move(Err));
     }
+    if (auto Err =
+            DeclarationCleanups.add(tooling::Replacement(SM, DelRange, "")))
+      Errors = llvm::joinErrors(std::move(Errors), std::move(Err));
   }
 
   auto DelAttr = [&](const Attr *A) {
@@ -232,39 +292,25 @@ getFunctionSourceCode(const FunctionDecl *FD, llvm::StringRef TargetNamespace,
   DelAttr(FD->getAttr<FinalAttr>());
 
   auto DelKeyword = [&](tok::TokenKind Kind, SourceRange FromRange) {
-    bool FoundAny = false;
-    for (const auto &Tok : TokBuf.expandedTokens(FromRange)) {
-      if (Tok.kind() != Kind)
-        continue;
-      FoundAny = true;
-      auto Spelling = TokBuf.spelledForExpanded(llvm::makeArrayRef(Tok));
-      if (!Spelling) {
-        Errors = llvm::joinErrors(
-            std::move(Errors),
-            error("define outline: couldn't remove `{0}` keyword.",
-                  tok::getKeywordSpelling(Kind)));
-        break;
-      }
-      CharSourceRange DelRange =
-          syntax::Token::range(SM, Spelling->front(), Spelling->back())
-              .toCharRange(SM);
-      if (auto Err =
-              DeclarationCleanups.add(tooling::Replacement(SM, DelRange, "")))
-        Errors = llvm::joinErrors(std::move(Errors), std::move(Err));
+    auto DelKeywords = deleteTokensWithKind(TokBuf, Kind, FromRange);
+    if (!DelKeywords) {
+      Errors = llvm::joinErrors(std::move(Errors), DelKeywords.takeError());
+      return;
     }
-    if (!FoundAny) {
-      Errors = llvm::joinErrors(
-          std::move(Errors),
-          error("define outline: couldn't find `{0}` keyword to remove.",
-                tok::getKeywordSpelling(Kind)));
-    }
+    DeclarationCleanups = DeclarationCleanups.merge(*DelKeywords);
   };
 
+  if (FD->isInlineSpecified())
+    DelKeyword(tok::kw_inline, {FD->getBeginLoc(), FD->getLocation()});
   if (const auto *MD = dyn_cast<CXXMethodDecl>(FD)) {
     if (MD->isVirtualAsWritten())
       DelKeyword(tok::kw_virtual, {FD->getBeginLoc(), FD->getLocation()});
     if (MD->isStatic())
       DelKeyword(tok::kw_static, {FD->getBeginLoc(), FD->getLocation()});
+  }
+  if (const auto *CD = dyn_cast<CXXConstructorDecl>(FD)) {
+    if (CD->isExplicit())
+      DelKeyword(tok::kw_explicit, {FD->getBeginLoc(), FD->getLocation()});
   }
 
   if (Errors)
@@ -383,11 +429,20 @@ public:
     if (Source->getTemplateSpecializationInfo())
       return false;
 
-    // Bail out in templated classes, as it is hard to spell the class name, i.e
-    // if the template parameter is unnamed.
     if (auto *MD = llvm::dyn_cast<CXXMethodDecl>(Source)) {
+      // Bail out in templated classes, as it is hard to spell the class name,
+      // i.e if the template parameter is unnamed.
       if (MD->getParent()->isTemplated())
         return false;
+
+      // The refactoring is meaningless for unnamed classes and definitions
+      // within unnamed namespaces.
+      for (const DeclContext *DC = MD->getParent(); DC; DC = DC->getParent()) {
+        if (auto *ND = llvm::dyn_cast<NamedDecl>(DC)) {
+          if (ND->getDeclName().isEmpty())
+            return false;
+        }
+      }
     }
 
     // Note that we don't check whether an implementation file exists or not in
@@ -398,18 +453,12 @@ public:
 
   Expected<Effect> apply(const Selection &Sel) override {
     const SourceManager &SM = Sel.AST->getSourceManager();
-    auto MainFileName =
-        getCanonicalPath(SM.getFileEntryForID(SM.getMainFileID()), SM);
-    if (!MainFileName)
-      return error("Couldn't get absolute path for main file.");
+    auto CCFile = getSourceFile(Sel.AST->tuPath(), Sel);
 
-    auto CCFile = getSourceFile(*MainFileName, Sel);
     if (!CCFile)
       return error("Couldn't find a suitable implementation file.");
-
-    auto &FS =
-        Sel.AST->getSourceManager().getFileManager().getVirtualFileSystem();
-    auto Buffer = FS.getBufferForFile(*CCFile);
+    assert(Sel.FS && "FS Must be set in apply");
+    auto Buffer = Sel.FS->getBufferForFile(*CCFile);
     // FIXME: Maybe we should consider creating the implementation file if it
     // doesn't exist?
     if (!Buffer)
@@ -421,7 +470,8 @@ public:
       return InsertionPoint.takeError();
 
     auto FuncDef = getFunctionSourceCode(
-        Source, InsertionPoint->EnclosingNamespace, Sel.AST->getTokens());
+        Source, InsertionPoint->EnclosingNamespace, Sel.AST->getTokens(),
+        Sel.AST->getHeuristicResolver());
     if (!FuncDef)
       return FuncDef.takeError();
 
@@ -433,15 +483,23 @@ public:
     if (!Effect)
       return Effect.takeError();
 
-    // FIXME: We should also get rid of inline qualifier.
-    const tooling::Replacement DeleteFuncBody(
+    tooling::Replacements HeaderUpdates(tooling::Replacement(
         Sel.AST->getSourceManager(),
         CharSourceRange::getTokenRange(*toHalfOpenFileRange(
             SM, Sel.AST->getLangOpts(),
             getDeletionRange(Source, Sel.AST->getTokens()))),
-        ";");
-    auto HeaderFE = Effect::fileEdit(SM, SM.getMainFileID(),
-                                     tooling::Replacements(DeleteFuncBody));
+        ";"));
+
+    if (Source->isInlineSpecified()) {
+      auto DelInline =
+          deleteTokensWithKind(Sel.AST->getTokens(), tok::kw_inline,
+                               {Source->getBeginLoc(), Source->getLocation()});
+      if (!DelInline)
+        return DelInline.takeError();
+      HeaderUpdates = HeaderUpdates.merge(*DelInline);
+    }
+
+    auto HeaderFE = Effect::fileEdit(SM, SM.getMainFileID(), HeaderUpdates);
     if (!HeaderFE)
       return HeaderFE.takeError();
 

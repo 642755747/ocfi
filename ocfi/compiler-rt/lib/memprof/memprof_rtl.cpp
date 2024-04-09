@@ -21,6 +21,7 @@
 #include "memprof_thread.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_flags.h"
+#include "sanitizer_common/sanitizer_interface_internal.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
 
@@ -38,6 +39,7 @@ static void MemprofDie() {
   if (atomic_fetch_add(&num_calls, 1, memory_order_relaxed) != 0) {
     // Don't die twice - run a busy loop.
     while (1) {
+      internal_sched_yield();
     }
   }
   if (common_flags()->print_module_map >= 1)
@@ -48,24 +50,21 @@ static void MemprofDie() {
   }
 }
 
-static void MemprofCheckFailed(const char *file, int line, const char *cond,
-                               u64 v1, u64 v2) {
-  Report("MemProfiler CHECK failed: %s:%d \"%s\" (0x%zx, 0x%zx)\n", file, line,
-         cond, (uptr)v1, (uptr)v2);
-
-  // Print a stack trace the first time we come here. Otherwise, we probably
-  // failed a CHECK during symbolization.
-  static atomic_uint32_t num_calls;
-  if (atomic_fetch_add(&num_calls, 1, memory_order_relaxed) == 0) {
-    PRINT_CURRENT_STACK_CHECK();
-  }
-
+static void MemprofOnDeadlySignal(int signo, void *siginfo, void *context) {
+  // We call StartReportDeadlySignal not HandleDeadlySignal so we get the
+  // deadly signal message to stderr but no writing to the profile output file
+  StartReportDeadlySignal();
+  __memprof_profile_dump();
   Die();
+}
+
+static void CheckUnwind() {
+  GET_STACK_TRACE(kStackTraceMax, common_flags()->fast_unwind_on_check);
+  stack.Print();
 }
 
 // -------------------------- Globals --------------------- {{{1
 int memprof_inited;
-int memprof_init_done;
 bool memprof_init_is_running;
 int memprof_timestamp_inited;
 long memprof_init_timestamp_s;
@@ -143,13 +142,6 @@ void PrintAddressSpaceLayout() {
   CHECK(SHADOW_SCALE >= 3 && SHADOW_SCALE <= 7);
 }
 
-static bool UNUSED __local_memprof_dyninit = [] {
-  MaybeStartBackgroudThread();
-  SetSoftRssLimitExceededCallback(MemprofSoftRssLimitExceededCallback);
-
-  return false;
-}();
-
 static void MemprofInitInternal() {
   if (LIKELY(memprof_inited))
     return;
@@ -170,11 +162,11 @@ static void MemprofInitInternal() {
   InitializeHighMemEnd();
 
   // Make sure we are not statically linked.
-  MemprofDoesNotSupportStaticLinkage();
+  __interception::DoesNotSupportStaticLinking();
 
   // Install tool-specific callbacks in sanitizer_common.
   AddDieCallback(MemprofDie);
-  SetCheckFailedCallback(MemprofCheckFailed);
+  SetCheckUnwindCallback(CheckUnwind);
 
   // Use profile name specified via the binary itself if it exists, and hasn't
   // been overrriden by a flag at runtime.
@@ -184,9 +176,6 @@ static void MemprofInitInternal() {
     __sanitizer_set_report_path(common_flags()->log_path);
 
   __sanitizer::InitializePlatformEarly();
-
-  // Re-exec ourselves if we need to set additional env or command line args.
-  MaybeReexec();
 
   // Setup internal allocator callback.
   SetLowLevelAllocateMinAlignment(SHADOW_GRANULARITY);
@@ -201,13 +190,9 @@ static void MemprofInitInternal() {
   InitializeShadowMemory();
 
   TSDInit(PlatformTSDDtor);
+  InstallDeadlySignalHandlers(MemprofOnDeadlySignal);
 
   InitializeAllocator();
-
-  // On Linux MemprofThread::ThreadStart() calls malloc() that's why
-  // memprof_inited should be set to 1 prior to initializing the threads.
-  memprof_inited = 1;
-  memprof_init_is_running = false;
 
   if (flags()->atexit)
     Atexit(memprof_atexit);
@@ -227,7 +212,8 @@ static void MemprofInitInternal() {
 
   VReport(1, "MemProfiler Init done\n");
 
-  memprof_init_done = 1;
+  memprof_init_is_running = false;
+  memprof_inited = 1;
 }
 
 void MemprofInitTime() {
@@ -274,14 +260,9 @@ void __memprof_record_access(void const volatile *addr) {
   __memprof::RecordAccess((uptr)addr);
 }
 
-// We only record the access on the first location in the range,
-// since we will later accumulate the access counts across the
-// full allocation, and we don't want to inflate the hotness from
-// a memory intrinsic on a large range of memory.
-// TODO: Should we do something else so we can better track utilization?
-void __memprof_record_access_range(void const volatile *addr,
-                                   UNUSED uptr size) {
-  __memprof::RecordAccess((uptr)addr);
+void __memprof_record_access_range(void const volatile *addr, uptr size) {
+  for (uptr a = (uptr)addr; a < (uptr)addr + size; a += kWordSize)
+    __memprof::RecordAccess(a);
 }
 
 extern "C" SANITIZER_INTERFACE_ATTRIBUTE u16

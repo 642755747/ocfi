@@ -44,10 +44,8 @@ test1()
     assert((LCE::min() == (c == 0u ? 1u: 0u)));
 #endif
 
-#ifdef TEST_COMPILER_C1XX
-    #pragma warning(push)
-    #pragma warning(disable: 4310) // cast truncates constant value
-#endif // TEST_COMPILER_C1XX
+    TEST_DIAGNOSTIC_PUSH
+    TEST_MSVC_DIAGNOSTIC_IGNORED(4310) // cast truncates constant value
 
 #if TEST_STD_VER >= 11
     static_assert((LCE::max() == result_type(m - 1u)), "");
@@ -55,9 +53,7 @@ test1()
     assert((LCE::max() == result_type(m - 1u)));
 #endif
 
-#ifdef TEST_COMPILER_C1XX
-    #pragma warning(pop)
-#endif // TEST_COMPILER_C1XX
+    TEST_DIAGNOSTIC_POP
 
     static_assert((LCE::default_seed == 1), "");
     where(LCE::multiplier);
@@ -70,19 +66,41 @@ template <class T>
 void
 test()
 {
-    test1<T, 0, 0, 0>();
-    test1<T, 0, 1, 2>();
-    test1<T, 1, 1, 2>();
-    const T M(static_cast<T>(-1));
-    test1<T, 0, 0, M>();
-    test1<T, 0, M-2, M>();
-    test1<T, 0, M-1, M>();
-    test1<T, M-2, 0, M>();
-    test1<T, M-2, M-2, M>();
-    test1<T, M-2, M-1, M>();
-    test1<T, M-1, 0, M>();
-    test1<T, M-1, M-2, M>();
-    test1<T, M-1, M-1, M>();
+  const int W = sizeof(T) * CHAR_BIT;
+  const T M(static_cast<T>(-1));
+  const T A(static_cast<T>((static_cast<T>(1) << (W / 2)) - 1));
+
+  // Cases where m = 0
+  test1<T, 0, 0, 0>();
+  test1<T, A, 0, 0>();
+  test1<T, 0, 1, 0>();
+  test1<T, A, 1, 0>();
+
+  // Cases where m = 2^n for n < w
+  test1<T, 0, 0, 256>();
+  test1<T, 5, 0, 256>();
+  test1<T, 0, 1, 256>();
+  test1<T, 5, 1, 256>();
+
+  // Cases where m is odd and a = 0
+  test1<T, 0, 0, M>();
+  test1<T, 0, M - 2, M>();
+  test1<T, 0, M - 1, M>();
+
+  // Cases where m is odd and m % a <= m / a (Schrage)
+  test1<T, A, 0, M>();
+  test1<T, A, M - 2, M>();
+  test1<T, A, M - 1, M>();
+
+  /*
+  // Cases where m is odd and m % a > m / a (not implemented)
+  test1<T, M - 2, 0, M>();
+  test1<T, M - 2, M - 2, M>();
+  test1<T, M - 2, M - 1, M>();
+  test1<T, M - 1, 0, M>();
+  test1<T, M - 1, M - 2, M>();
+  test1<T, M - 1, M - 1, M>();
+  */
 }
 
 int main(int, char**)

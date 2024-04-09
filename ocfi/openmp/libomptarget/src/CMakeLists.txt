@@ -12,42 +12,79 @@
 
 libomptarget_say("Building offloading runtime library libomptarget.")
 
-set(LIBOMPTARGET_SRC_FILES
-  ${CMAKE_CURRENT_SOURCE_DIR}/api.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/device.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/interface.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/rtl.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/omptarget.cpp
+add_llvm_library(omptarget
+  SHARED
+
+  device.cpp
+  interface.cpp
+  omptarget.cpp
+  OffloadRTL.cpp
+  LegacyAPI.cpp
+  PluginManager.cpp
+  DeviceImage.cpp
+
+  OpenMP/API.cpp
+  OpenMP/Mapping.cpp
+  OpenMP/InteropAPI.cpp
+  OpenMP/OMPT/Callback.cpp
+
+
+  ADDITIONAL_HEADER_DIRS
+  ${LIBOMPTARGET_INCLUDE_DIR}
+
+  LINK_COMPONENTS
+  Support
+  Object
+
+  LINK_LIBS
+  PUBLIC
+  omp
+
+  NO_INSTALL_RPATH
+  BUILDTREE_ONLY
 )
+target_include_directories(omptarget PRIVATE ${LIBOMPTARGET_INCLUDE_DIR})
 
-set(LIBOMPTARGET_SRC_FILES ${LIBOMPTARGET_SRC_FILES} PARENT_SCOPE)
-
-include_directories(${LIBOMPTARGET_LLVM_INCLUDE_DIRS})
-
-# Build libomptarget library with libdl dependency. Add LLVMSupport
-# dependency if building in-tree with profiling enabled.
-if(OPENMP_STANDALONE_BUILD OR (NOT OPENMP_ENABLE_LIBOMPTARGET_PROFILING))
-  add_library(omptarget SHARED ${LIBOMPTARGET_SRC_FILES})
-  target_link_libraries(omptarget
-    ${CMAKE_DL_LIBS}
+if (LIBOMP_HAVE_VERSION_SCRIPT_FLAG)
+  target_link_libraries(omptarget PRIVATE
     "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports")
-else()
-  set(LLVM_LINK_COMPONENTS
-    Support
-    )
-  add_llvm_library(omptarget SHARED ${LIBOMPTARGET_SRC_FILES}
-      LINK_LIBS ${CMAKE_DL_LIBS}
-      "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports"
-      )
-  target_compile_definitions(omptarget PUBLIC OMPTARGET_PROFILE_ENABLED)
 endif()
 
-# libomptarget needs to be set separately because add_llvm_library doesn't
-# conform with location configuration of its parent scope.
-set_target_properties(omptarget
-  PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY ${LIBOMPTARGET_LIBRARY_DIR})
+# Define the TARGET_NAME and DEBUG_PREFIX.
+target_compile_definitions(omptarget PRIVATE
+  TARGET_NAME=omptarget
+  DEBUG_PREFIX="omptarget"
+)
 
-# Install libomptarget under the lib destination folder.
-install(TARGETS omptarget LIBRARY COMPONENT omptarget
-  DESTINATION "${OPENMP_INSTALL_LIBDIR}")
+target_compile_options(omptarget PUBLIC ${offload_compile_flags})
+target_link_options(omptarget PUBLIC ${offload_link_flags})
+
+macro(check_plugin_target target)
+if (TARGET omptarget.rtl.${target})
+	list(APPEND LIBOMPTARGET_PLUGINS_TO_LOAD ${target})
+endif()
+endmacro()
+
+set(LIBOMPTARGET_PLUGINS_TO_LOAD "" CACHE STRING
+  "Comma separated list of plugin names to look for at runtime")
+if (NOT LIBOMPTARGET_PLUGINS_TO_LOAD)
+	check_plugin_target(ppc64)
+	check_plugin_target(x86_64)
+	check_plugin_target(cuda)
+	check_plugin_target(aarch64)
+	check_plugin_target(amdgpu)
+	check_plugin_target(s390x)
+endif()
+
+list(TRANSFORM LIBOMPTARGET_PLUGINS_TO_LOAD PREPEND "\"libomptarget.rtl.")
+list(TRANSFORM LIBOMPTARGET_PLUGINS_TO_LOAD APPEND "\"")
+list(JOIN LIBOMPTARGET_PLUGINS_TO_LOAD "," ENABLED_OFFLOAD_PLUGINS)
+target_compile_definitions(omptarget PRIVATE ENABLED_OFFLOAD_PLUGINS=${ENABLED_OFFLOAD_PLUGINS})
+
+# libomptarget.so needs to be aware of where the plugins live as they
+# are now separated in the build directory.
+set_target_properties(omptarget PROPERTIES
+                      POSITION_INDEPENDENT_CODE ON
+                      INSTALL_RPATH "$ORIGIN"
+                      BUILD_RPATH "$ORIGIN:${CMAKE_CURRENT_BINARY_DIR}/..")
+install(TARGETS omptarget LIBRARY COMPONENT omptarget DESTINATION "${OPENMP_INSTALL_LIBDIR}")

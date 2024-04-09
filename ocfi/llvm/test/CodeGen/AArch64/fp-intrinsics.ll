@@ -1,4 +1,5 @@
-; RUN: llc -mtriple=aarch64-none-eabi %s -o - | FileCheck %s
+; RUN: llc -mtriple=aarch64 %s -o - | FileCheck %s
+; RUN: llc -mtriple=aarch64 -global-isel=true -global-isel-abort=2 %s -o - | FileCheck %s
 
 ; Check that constrained fp intrinsics are correctly lowered.
 
@@ -231,6 +232,20 @@ define float @minnum_f32(float %x, float %y) #0 {
   ret float %val
 }
 
+; CHECK-LABEL: maximum_f32:
+; CHECK: fmax s0, s0, s1
+define float @maximum_f32(float %x, float %y) #0 {
+  %val = call float @llvm.experimental.constrained.maximum.f32(float %x, float %y, metadata !"fpexcept.strict") #0
+  ret float %val
+}
+
+; CHECK-LABEL: minimum_f32:
+; CHECK: fmin s0, s0, s1
+define float @minimum_f32(float %x, float %y) #0 {
+  %val = call float @llvm.experimental.constrained.minimum.f32(float %x, float %y, metadata !"fpexcept.strict") #0
+  ret float %val
+}
+
 ; CHECK-LABEL: ceil_f32:
 ; CHECK: frintp s0, s0
 define float @ceil_f32(float %x) #0 {
@@ -263,6 +278,13 @@ define i64 @llround_f32(float %x) #0 {
 ; CHECK: frinta s0, s0
 define float @round_f32(float %x) #0 {
   %val = call float @llvm.experimental.constrained.round.f32(float %x, metadata !"fpexcept.strict") #0
+  ret float %val
+}
+
+; CHECK-LABEL: roundeven_f32:
+; CHECK: frintn s0, s0
+define float @roundeven_f32(float %x) #0 {
+  %val = call float @llvm.experimental.constrained.roundeven.f32(float %x, metadata !"fpexcept.strict") #0
   ret float %val
 }
 
@@ -694,6 +716,20 @@ define double @minnum_f64(double %x, double %y) #0 {
   ret double %val
 }
 
+; CHECK-LABEL: maximum_f64:
+; CHECK: fmax d0, d0, d1
+define double @maximum_f64(double %x, double %y) #0 {
+  %val = call double @llvm.experimental.constrained.maximum.f64(double %x, double %y, metadata !"fpexcept.strict") #0
+  ret double %val
+}
+
+; CHECK-LABEL: minimum_f64:
+; CHECK: fmin d0, d0, d1
+define double @minimum_f64(double %x, double %y) #0 {
+  %val = call double @llvm.experimental.constrained.minimum.f64(double %x, double %y, metadata !"fpexcept.strict") #0
+  ret double %val
+}
+
 ; CHECK-LABEL: ceil_f64:
 ; CHECK: frintp d0, d0
 define double @ceil_f64(double %x) #0 {
@@ -726,6 +762,13 @@ define i64 @llround_f64(double %x) #0 {
 ; CHECK: frinta d0, d0
 define double @round_f64(double %x) #0 {
   %val = call double @llvm.experimental.constrained.round.f64(double %x, metadata !"fpexcept.strict") #0
+  ret double %val
+}
+
+; CHECK-LABEL: roundeven_f64:
+; CHECK: frintn d0, d0
+define double @roundeven_f64(double %x) #0 {
+  %val = call double @llvm.experimental.constrained.roundeven.f64(double %x, metadata !"fpexcept.strict") #0
   ret double %val
 }
 
@@ -1434,6 +1477,61 @@ define fp128 @fpext_f128_f64(double %x) #0 {
   ret fp128 %val
 }
 
+; CHECK-LABEL: sin_v1f64:
+; CHECK: bl sin
+define <1 x double> @sin_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.sin.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: cos_v1f64:
+; CHECK: bl cos
+define <1 x double> @cos_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.cos.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: pow_v1f64:
+; CHECK: bl pow
+define <1 x double> @pow_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.pow.v1f64(<1 x double> %x, <1 x double> %y, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: log_v1f64:
+; CHECK: bl log
+define <1 x double> @log_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.log.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: log2_v1f64:
+; CHECK: bl log2
+define <1 x double> @log2_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.log2.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: log10_v1f64:
+; CHECK: bl log10
+define <1 x double> @log10_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.log10.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: exp_v1f64:
+; CHECK: bl exp
+define <1 x double> @exp_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.exp.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
+
+; CHECK-LABEL: exp2_v1f64:
+; CHECK: bl exp2
+define <1 x double> @exp2_v1f64(<1 x double> %x, <1 x double> %y) #0 {
+  %val = call <1 x double> @llvm.experimental.constrained.exp2.v1f64(<1 x double> %x, metadata !"round.tonearest", metadata !"fpexcept.strict") #0
+  ret <1 x double> %val
+}
 
 attributes #0 = { strictfp }
 
@@ -1469,11 +1567,14 @@ declare i32 @llvm.experimental.constrained.lrint.f32(float, metadata, metadata)
 declare i64 @llvm.experimental.constrained.llrint.f32(float, metadata, metadata)
 declare float @llvm.experimental.constrained.maxnum.f32(float, float, metadata)
 declare float @llvm.experimental.constrained.minnum.f32(float, float, metadata)
+declare float @llvm.experimental.constrained.maximum.f32(float, float, metadata)
+declare float @llvm.experimental.constrained.minimum.f32(float, float, metadata)
 declare float @llvm.experimental.constrained.ceil.f32(float, metadata)
 declare float @llvm.experimental.constrained.floor.f32(float, metadata)
 declare i32 @llvm.experimental.constrained.lround.f32(float, metadata)
 declare i64 @llvm.experimental.constrained.llround.f32(float, metadata)
 declare float @llvm.experimental.constrained.round.f32(float, metadata)
+declare float @llvm.experimental.constrained.roundeven.f32(float, metadata)
 declare float @llvm.experimental.constrained.trunc.f32(float, metadata)
 declare i1 @llvm.experimental.constrained.fcmps.f32(float, float, metadata, metadata)
 declare i1 @llvm.experimental.constrained.fcmp.f32(float, float, metadata, metadata)
@@ -1510,11 +1611,14 @@ declare i32 @llvm.experimental.constrained.lrint.f64(double, metadata, metadata)
 declare i64 @llvm.experimental.constrained.llrint.f64(double, metadata, metadata)
 declare double @llvm.experimental.constrained.maxnum.f64(double, double, metadata)
 declare double @llvm.experimental.constrained.minnum.f64(double, double, metadata)
+declare double @llvm.experimental.constrained.maximum.f64(double, double, metadata)
+declare double @llvm.experimental.constrained.minimum.f64(double, double, metadata)
 declare double @llvm.experimental.constrained.ceil.f64(double, metadata)
 declare double @llvm.experimental.constrained.floor.f64(double, metadata)
 declare i32 @llvm.experimental.constrained.lround.f64(double, metadata)
 declare i64 @llvm.experimental.constrained.llround.f64(double, metadata)
 declare double @llvm.experimental.constrained.round.f64(double, metadata)
+declare double @llvm.experimental.constrained.roundeven.f64(double, metadata)
 declare double @llvm.experimental.constrained.trunc.f64(double, metadata)
 declare i1 @llvm.experimental.constrained.fcmps.f64(double, double, metadata, metadata)
 declare i1 @llvm.experimental.constrained.fcmp.f64(double, double, metadata, metadata)

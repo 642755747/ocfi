@@ -85,12 +85,9 @@
 #CHECK: aghi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: aghi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: aghi	%r0, foo
 
 	aghi	%r0, -32769
 	aghi	%r0, 32768
-	aghi	%r0, foo
 
 #CHECK: error: instruction requires: distinct-ops
 #CHECK: aghik	%r1, %r2, 3
@@ -141,12 +138,9 @@
 #CHECK: ahi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: ahi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: ahi	%r0, foo
 
 	ahi	%r0, -32769
 	ahi	%r0, 32768
-	ahi	%r0, foo
 
 #CHECK: error: instruction requires: distinct-ops
 #CHECK: ahik	%r1, %r2, 3
@@ -512,6 +506,8 @@
 #CHECK: error: offset out of range
 #CHECK: brasl	%r0, -0x1000000002
 #CHECK: error: offset out of range
+#CHECK: brasl	%r0, .-0x1000000002
+#CHECK: error: offset out of range
 #CHECK: brasl	%r0, -1
 #CHECK: error: offset out of range
 #CHECK: brasl	%r0, 1
@@ -520,6 +516,8 @@
 #CHECK: error: offset out of range
 #CHECK: jasl	%r0, -0x1000000002
 #CHECK: error: offset out of range
+#CHECK: jasl	%r0, .-0x1000000002
+#CHECK: error: offset out of range
 #CHECK: jasl	%r0, -1
 #CHECK: error: offset out of range
 #CHECK: jasl	%r0, 1
@@ -527,10 +525,12 @@
 #CHECK: jasl	%r0, 0x100000000
 
 	brasl	%r0, -0x1000000002
+	brasl	%r0, .-0x1000000002
 	brasl	%r0, -1
 	brasl	%r0, 1
 	brasl	%r0, 0x100000000
 	jasl	%r0, -0x1000000002
+	jasl	%r0, .-0x1000000002
 	jasl	%r0, -1
 	jasl	%r0, 1
 	jasl	%r0, 0x100000000
@@ -561,14 +561,70 @@
 	jnop	1
 	jnop	0x10000
 
-#CHECK: error: invalid operand
-#CHECK: brc	foo, bar
+#CHECK: error: invalid instruction
+#CHECK: jlu     label
+#CHECK: error: invalid instruction
+#CHECK: jlne    label
+#CHECK: error: invalid instruction
+#CHECK: jlnh    label
+#CHECK: error: invalid instruction
+#CHECK: jll     label
+#CHECK: error: invalid instruction
+#CHECK: jlnl    label
+#CHECK: error: invalid instruction
+#CHECK: jlhe    label
+#CHECK: error: invalid instruction
+#CHECK: jlnhe   label
+#CHECK: error: invalid instruction
+#CHECK: jlle    label
+#CHECK: error: invalid instruction
+#CHECK: jlnle   label
+#CHECK: error: invalid instruction
+#CHECK: jlz     label
+#CHECK: error: invalid instruction
+#CHECK: jlnz    label
+#CHECK: error: invalid instruction
+#CHECK: jlp     label
+#CHECK: error: invalid instruction
+#CHECK: jlnp    label
+#CHECK: error: invalid instruction
+#CHECK: jlm     label
+#CHECK: error: invalid instruction
+#CHECK: jlnm    label
+#CHECK: error: invalid instruction
+#CHECK: jllh    label
+#CHECK: error: invalid instruction
+#CHECK: jllnlh  label
+#CHECK: error: invalid instruction
+#CHECK: jlo     label
+#CHECK: error: invalid instruction
+#CHECK: jlno    label
+
+	jlu	label
+	jlne	label
+	jlnh	label
+	jll	label
+	jlnl	label
+	jlhe	label
+	jlnhe	label
+	jlle	label
+	jlnle	label
+	jlz	label
+	jlnz	label
+	jlp	label
+	jlnp	label
+	jlm	label
+	jlnm	label
+	jllh	label
+	jllnlh	label
+	jlo	label
+	jlno	label
+
 #CHECK: error: invalid operand
 #CHECK: brc	-1, bar
 #CHECK: error: invalid operand
 #CHECK: brc	16, bar
 
-	brc	foo, bar
 	brc	-1, bar
 	brc	16, bar
 
@@ -598,14 +654,16 @@
 	jgnop	1
 	jgnop	0x100000000
 
-#CHECK: error: invalid operand
-#CHECK: brcl	foo, bar
+
+#CHECK: error: invalid instruction
+#CHECK: jlnop	label
+	jlnop	label
+
 #CHECK: error: invalid operand
 #CHECK: brcl	-1, bar
 #CHECK: error: invalid operand
 #CHECK: brcl	16, bar
 
-	brcl	foo, bar
 	brcl	-1, bar
 	brcl	16, bar
 
@@ -1114,12 +1172,9 @@
 #CHECK: cghi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: cghi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: cghi	%r0, foo
 
 	cghi	%r0, -32769
 	cghi	%r0, 32768
-	cghi	%r0, foo
 
 #CHECK: error: offset out of range
 #CHECK: cghrl	%r0, -0x1000000002
@@ -1322,12 +1377,9 @@
 #CHECK: chi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: chi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: chi	%r0, foo
 
 	chi	%r0, -32769
 	chi	%r0, 32768
-	chi	%r0, foo
 
 #CHECK: error: instruction requires: high-word
 #CHECK: chlr	%r0, %r0
@@ -3476,12 +3528,9 @@
 #CHECK: lghi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: lghi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: lghi	%r0, foo
 
 	lghi	%r0, -32769
 	lghi	%r0, 32768
-	lghi	%r0, foo
 
 #CHECK: error: offset out of range
 #CHECK: lghrl	%r0, -0x1000000002
@@ -3528,12 +3577,9 @@
 #CHECK: lhi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: lhi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: lhi	%r0, foo
 
 	lhi	%r0, -32769
 	lhi	%r0, 32768
-	lhi	%r0, foo
 
 #CHECK: error: offset out of range
 #CHECK: lhrl	%r0, -0x1000000002
@@ -4251,12 +4297,9 @@
 #CHECK: mghi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: mghi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: mghi	%r0, foo
 
 	mghi	%r0, -32769
 	mghi	%r0, 32768
-	mghi	%r0, foo
 
 #CHECK: error: invalid operand
 #CHECK: mh	%r0, -1
@@ -4270,12 +4313,9 @@
 #CHECK: mhi	%r0, -32769
 #CHECK: error: invalid operand
 #CHECK: mhi	%r0, 32768
-#CHECK: error: invalid operand
-#CHECK: mhi	%r0, foo
 
 	mhi	%r0, -32769
 	mhi	%r0, 32768
-	mhi	%r0, foo
 
 #CHECK: error: invalid operand
 #CHECK: mhy	%r0, -524289
@@ -5565,8 +5605,6 @@
 #CHECK: error: invalid operand
 #CHECK: risbg	%r0,%r0,0,0,-1
 #CHECK: error: invalid operand
-#CHECK: risbg	%r0,%r0,0,0,64
-#CHECK: error: invalid operand
 #CHECK: risbg	%r0,%r0,0,-1,0
 #CHECK: error: invalid operand
 #CHECK: risbg	%r0,%r0,0,256,0
@@ -5576,7 +5614,6 @@
 #CHECK: risbg	%r0,%r0,256,0,0
 
 	risbg	%r0,%r0,0,0,-1
-	risbg	%r0,%r0,0,0,64
 	risbg	%r0,%r0,0,-1,0
 	risbg	%r0,%r0,0,256,0
 	risbg	%r0,%r0,-1,0,0
@@ -5615,10 +5652,6 @@
 	rllg	%r0,%r0,0(%r1,%r2)
 
 #CHECK: error: invalid operand
-#CHECK: rnsbg	%r0,%r0,0,0,-1
-#CHECK: error: invalid operand
-#CHECK: rnsbg	%r0,%r0,0,0,64
-#CHECK: error: invalid operand
 #CHECK: rnsbg	%r0,%r0,0,-1,0
 #CHECK: error: invalid operand
 #CHECK: rnsbg	%r0,%r0,0,256,0
@@ -5627,17 +5660,11 @@
 #CHECK: error: invalid operand
 #CHECK: rnsbg	%r0,%r0,256,0,0
 
-	rnsbg	%r0,%r0,0,0,-1
-	rnsbg	%r0,%r0,0,0,64
 	rnsbg	%r0,%r0,0,-1,0
 	rnsbg	%r0,%r0,0,256,0
 	rnsbg	%r0,%r0,-1,0,0
 	rnsbg	%r0,%r0,256,0,0
 
-#CHECK: error: invalid operand
-#CHECK: rosbg	%r0,%r0,0,0,-1
-#CHECK: error: invalid operand
-#CHECK: rosbg	%r0,%r0,0,0,64
 #CHECK: error: invalid operand
 #CHECK: rosbg	%r0,%r0,0,-1,0
 #CHECK: error: invalid operand
@@ -5647,8 +5674,6 @@
 #CHECK: error: invalid operand
 #CHECK: rosbg	%r0,%r0,256,0,0
 
-	rosbg	%r0,%r0,0,0,-1
-	rosbg	%r0,%r0,0,0,64
 	rosbg	%r0,%r0,0,-1,0
 	rosbg	%r0,%r0,0,256,0
 	rosbg	%r0,%r0,-1,0,0
@@ -5696,10 +5721,6 @@
 	rrxtr	%f2, %f0, %f0, 0
 
 #CHECK: error: invalid operand
-#CHECK: rxsbg	%r0,%r0,0,0,-1
-#CHECK: error: invalid operand
-#CHECK: rxsbg	%r0,%r0,0,0,64
-#CHECK: error: invalid operand
 #CHECK: rxsbg	%r0,%r0,0,-1,0
 #CHECK: error: invalid operand
 #CHECK: rxsbg	%r0,%r0,0,256,0
@@ -5708,8 +5729,6 @@
 #CHECK: error: invalid operand
 #CHECK: rxsbg	%r0,%r0,256,0,0
 
-	rxsbg	%r0,%r0,0,0,-1
-	rxsbg	%r0,%r0,0,0,64
 	rxsbg	%r0,%r0,0,-1,0
 	rxsbg	%r0,%r0,0,256,0
 	rxsbg	%r0,%r0,-1,0,0

@@ -1,10 +1,13 @@
-// RUN: %libomptarget-compile-run-and-check-aarch64-unknown-linux-gnu
-// RUN: %libomptarget-compile-run-and-check-powerpc64-ibm-linux-gnu
-// RUN: %libomptarget-compile-run-and-check-powerpc64le-ibm-linux-gnu
-// RUN: %libomptarget-compile-run-and-check-x86_64-pc-linux-gnu
+// RUN: %libomptarget-compile-generic
+// RUN: env HSA_XNACK=1 \
+// RUN: %libomptarget-run-generic | %fcheck-generic
+// XFAIL: nvptx64-nvidia-cuda
+// XFAIL: nvptx64-nvidia-cuda-LTO
 
-#include <stdio.h>
+// REQUIRES: unified_shared_memory
+
 #include <omp.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------------------
 // Various definitions copied from OpenMP RTL

@@ -75,6 +75,8 @@ file(GLOB root_public_headers ${LLDB_SOURCE_DIR}/include/lldb/lldb-*.h)
 file(GLOB root_private_headers ${LLDB_SOURCE_DIR}/include/lldb/lldb-private*.h)
 list(REMOVE_ITEM root_public_headers ${root_private_headers})
 
+find_program(unifdef_EXECUTABLE unifdef)
+
 set(lldb_header_staging ${CMAKE_CURRENT_BINARY_DIR}/FrameworkHeaders)
 foreach(header
     ${public_headers}
@@ -83,10 +85,19 @@ foreach(header
   get_filename_component(basename ${header} NAME)
   set(staged_header ${lldb_header_staging}/${basename})
 
+  if(unifdef_EXECUTABLE)
+    # unifdef returns 0 when the file is unchanged and 1 if something was changed.
+    # That means if we successfully remove SWIG code, the build system believes
+    # that the command has failed and stops. This is undesirable.
+    set(copy_command ${unifdef_EXECUTABLE} -USWIG -o ${staged_header} ${header} || (exit 0))
+  else()
+    set(copy_command ${CMAKE_COMMAND} -E copy ${header} ${staged_header})
+  endif()
+
   add_custom_command(
     DEPENDS ${header} OUTPUT ${staged_header}
-    COMMAND ${CMAKE_COMMAND} -E copy ${header} ${staged_header}
-    COMMENT "LLDB.framework: collect framework header")
+    COMMAND ${copy_command}
+    COMMENT "LLDB.framework: collect framework header and remove SWIG macros")
 
   list(APPEND lldb_staged_headers ${staged_header})
 endforeach()
@@ -121,16 +132,6 @@ if(NOT APPLE_EMBEDDED)
             ${clang_resource_headers_dir}
             $<TARGET_FILE_DIR:liblldb>/Resources/Clang/include
     COMMENT "LLDB.framework: copy clang vendor-specific headers"
-  )
-endif()
-
-# IOS framework bundles are flat
-if(NOT APPLE_EMBEDDED)
-  add_custom_command(TARGET liblldb POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E create_symlink
-            Versions/Current/XPCServices
-            ${LLDB_FRAMEWORK_ABSOLUTE_BUILD_DIR}/LLDB.framework/XPCServices
-    COMMENT "LLDB.framework: create symlink XPCServices"
   )
 endif()
 

@@ -29,7 +29,7 @@ static cl::list<std::string> InputFiles(cl::Positional, cl::OneOrMore,
 
 static cl::list<std::string> InputArgv("args", cl::Positional,
                                        cl::desc("<program arguments>..."),
-                                       cl::ZeroOrMore, cl::PositionalEatsArgs);
+                                       cl::PositionalEatsArgs);
 
 static cl::opt<unsigned> NumThreads("num-threads", cl::Optional,
                                     cl::desc("Number of compile threads"),
@@ -49,11 +49,15 @@ public:
     if (!DL)
       return DL.takeError();
 
-    auto ES = std::make_unique<ExecutionSession>();
+    auto EPC = SelfExecutorProcessControl::Create();
+    if (!EPC)
+      return EPC.takeError();
+
+    auto ES = std::make_unique<ExecutionSession>(std::move(*EPC));
 
     auto LCTMgr = createLocalLazyCallThroughManager(
         JTMB->getTargetTriple(), *ES,
-        pointerToJITTargetAddress(explodeOnLazyCompileFailure));
+        ExecutorAddr::fromPtr(explodeOnLazyCompileFailure));
     if (!LCTMgr)
       return LCTMgr.takeError();
 
@@ -81,7 +85,7 @@ public:
     return CODLayer.add(MainJD, std::move(TSM));
   }
 
-  Expected<JITEvaluatedSymbol> lookup(StringRef UnmangledName) {
+  Expected<ExecutorSymbolDef> lookup(StringRef UnmangledName) {
     return ES->lookup({&MainJD}, Mangle(UnmangledName));
   }
 
@@ -112,14 +116,12 @@ private:
                  std::move(ISMBuilder)) {
     MainJD.addGenerator(std::move(ProcessSymbolsGenerator));
     this->CODLayer.setImplMap(&Imps);
-    this->ES->setDispatchMaterialization(
-        [this](std::unique_ptr<MaterializationUnit> MU,
-               std::unique_ptr<MaterializationResponsibility> MR) {
+    this->ES->setDispatchTask(
+        [this](std::unique_ptr<Task> T) {
           CompileThreads.async(
-              [UnownedMU = MU.release(), UnownedMR = MR.release()]() {
-                std::unique_ptr<MaterializationUnit> MU(UnownedMU);
-                std::unique_ptr<MaterializationResponsibility> MR(UnownedMR);
-                MU->materialize(std::move(MR));
+              [UnownedT = T.release()]() {
+                std::unique_ptr<Task> T(UnownedT);
+                T->run();
               });
         });
     ExitOnErr(S.addSpeculationRuntime(MainJD, Mangle));
@@ -134,7 +136,7 @@ private:
   std::unique_ptr<ExecutionSession> ES;
   DataLayout DL;
   MangleAndInterner Mangle{*ES, DL};
-  ThreadPool CompileThreads{llvm::hardware_concurrency(NumThreads)};
+  DefaultThreadPool CompileThreads{llvm::hardware_concurrency(NumThreads)};
 
   JITDylib &MainJD;
 
@@ -181,8 +183,7 @@ int main(int argc, char *argv[]) {
   }
 
   auto MainSym = ExitOnErr(SJ->lookup("main"));
-  auto Main =
-      jitTargetAddressToFunction<int (*)(int, char *[])>(MainSym.getAddress());
+  auto Main = MainSym.getAddress().toPtr<int (*)(int, char *[])>();
 
   return runAsMain(Main, InputArgv, StringRef(InputFiles.front()));
 
